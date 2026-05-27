@@ -110,7 +110,10 @@ export async function generateAndSaveDigest(forDate = new Date()) {
     title: digest.title,
     summary: digest.summary,
     topArticles: digest.topArticles as unknown as Prisma.InputJsonValue,
-    trends: digest.trends as unknown as Prisma.InputJsonValue,
+    trends: {
+      keywords: digest.trends.keywords,
+      businessOpportunities: digest.businessOpportunities,
+    } as unknown as Prisma.InputJsonValue,
     companies: digest.companies as unknown as Prisma.InputJsonValue,
     technologies: digest.technologies as unknown as Prisma.InputJsonValue,
   };
