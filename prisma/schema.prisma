@@ -1,0 +1,176 @@
+// AI Market Radar - Prisma schema
+// Independent project. No shared code or data with any other product.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SourceType {
+  RSS
+  ATOM
+  BLOG
+  GITHUB_RELEASES
+  ARXIV
+  WEBPAGE
+  OTHER
+}
+
+enum ArticleStatus {
+  PENDING_ANALYSIS
+  ANALYZED
+  ANALYSIS_FAILED
+  SKIPPED_NO_AI_KEY
+}
+
+enum Relevance {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ArticleType {
+  NEWS
+  LAUNCH
+  RESEARCH
+  TOOL
+  FUNDING
+  REGULATION
+  PRODUCT_UPDATE
+  TREND
+  OPINION
+  UNKNOWN
+}
+
+enum FetchStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String?
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  alerts Alert[]
+}
+
+model Source {
+  id                   String     @id @default(cuid())
+  name                 String
+  url                  String
+  type                 SourceType @default(RSS)
+  category             String?
+  isActive             Boolean    @default(true)
+  fetchIntervalMinutes Int        @default(15)
+  lastFetchedAt        DateTime?
+  lastError            String?
+  notes                String?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  articles  Article[]
+  fetchLogs FetchLog[]
+
+  @@index([isActive])
+}
+
+model Article {
+  id           String        @id @default(cuid())
+  sourceId     String
+  source       Source        @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  title        String
+  url          String
+  canonicalUrl String        @unique
+  author       String?
+  publishedAt  DateTime?
+  collectedAt  DateTime      @default(now())
+  rawExcerpt   String?
+  rawContent   String?
+  contentHash  String        @unique
+  language     String?
+  status       ArticleStatus @default(PENDING_ANALYSIS)
+  localScore   Float         @default(0)
+  finalScore   Float         @default(0)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  analysis ArticleAnalysis?
+
+  @@index([status])
+  @@index([publishedAt])
+  @@index([sourceId])
+  @@index([finalScore])
+}
+
+model ArticleAnalysis {
+  id                    String      @id @default(cuid())
+  articleId             String      @unique
+  article               Article     @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  summary               String?
+  impact                String?
+  category              String?
+  relevance             Relevance   @default(LOW)
+  relevanceScore        Int         @default(0)
+  articleType           ArticleType @default(UNKNOWN)
+  companies             String[]
+  technologies          String[]
+  keywords              String[]
+  marketSignals         String[]
+  businessOpportunities String[]
+  riskFlags             String[]
+  confidence            Int         @default(0)
+  reasoningShort        String?
+  aiModel               String?
+  createdAt             DateTime    @default(now())
+}
+
+model Alert {
+  id           String     @id @default(cuid())
+  userId       String?
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name         String
+  keyword      String?
+  company      String?
+  category     String?
+  minRelevance Relevance?
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  @@index([isActive])
+}
+
+model DailyDigest {
+  id           String   @id @default(cuid())
+  date         DateTime @unique
+  title        String
+  summary      String
+  topArticles  Json
+  trends       Json
+  companies    Json
+  technologies Json
+  createdAt    DateTime @default(now())
+}
+
+model FetchLog {
+  id              String      @id @default(cuid())
+  sourceId        String
+  source          Source      @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  status          FetchStatus
+  message         String?
+  startedAt       DateTime    @default(now())
+  finishedAt      DateTime?
+  articlesFound   Int         @default(0)
+  articlesCreated Int         @default(0)
+  duplicatesFound Int         @default(0)
+
+  @@index([sourceId])
+  @@index([startedAt])
+}
