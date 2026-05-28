@@ -26,7 +26,10 @@ async function cycle(): Promise<void> {
     if (isAiConfigured()) {
       const analysis = await analyzePending(config.aiBatchSize);
       console.log(
-        `[worker] análise: ${analysis.analyzed} analisado(s), ${analysis.failed} falha(s) de ${analysis.attempted}.`,
+        `[worker] análise: ${analysis.analyzed} analisado(s), ${analysis.failed} falha(s) de ${analysis.attempted}.` +
+          (analysis.stoppedBecause
+            ? ` Interrompido por ${analysis.stoppedBecause} — ${analysis.skipped} pendente(s); nova tentativa no próximo ciclo.`
+            : ""),
       );
     } else {
       console.log(

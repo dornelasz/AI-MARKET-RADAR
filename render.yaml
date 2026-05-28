@@ -1,0 +1,74 @@
+# Render Blueprint — AI Market Radar
+# Deploy: Render Dashboard > New > Blueprint > point to this repository.
+# Set the secrets GEMINI_API_KEY and NEXT_PUBLIC_APP_URL in the dashboard
+# (they are marked sync: false and are NOT stored in the repo).
+# Plans are adjustable; background workers require a paid plan on Render.
+
+databases:
+  - name: ai-market-radar-db
+    databaseName: ai_market_radar
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  # ---- Web service (Next.js) ----
+  - type: web
+    name: ai-market-radar-web
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run prisma:generate && npm run build
+    # Apply migrations once, before the new release goes live (never migrate dev).
+    preDeployCommand: npm run prisma:deploy
+    startCommand: npm run start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-market-radar-db
+          property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: AI_ANALYSIS_ENABLED
+        value: "true"
+      - key: AI_BATCH_SIZE
+        value: "5"
+      - key: AI_ANALYSIS_DAILY_LIMIT
+        value: "50"
+      - key: AI_ANALYSIS_STOP_ON_RATE_LIMIT
+        value: "true"
+      - key: AI_ANALYSIS_RETRY_COOLDOWN_MINUTES
+        value: "60"
+      - key: FETCH_INTERVAL_MINUTES
+        value: "15"
+
+  # ---- Worker service (collection + optional analysis on a schedule) ----
+  - type: worker
+    name: ai-market-radar-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run prisma:generate
+    startCommand: npm run worker
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-market-radar-db
+          property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: AI_ANALYSIS_ENABLED
+        value: "true"
+      - key: AI_BATCH_SIZE
+        value: "5"
+      - key: AI_ANALYSIS_DAILY_LIMIT
+        value: "50"
+      - key: AI_ANALYSIS_STOP_ON_RATE_LIMIT
+        value: "true"
+      - key: AI_ANALYSIS_RETRY_COOLDOWN_MINUTES
+        value: "60"
+      - key: FETCH_INTERVAL_MINUTES
+        value: "15"

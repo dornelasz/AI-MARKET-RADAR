@@ -76,10 +76,12 @@ Variáveis:
 |---|---|---|
 | `DATABASE_URL` | String de conexão do PostgreSQL | — |
 | `GEMINI_API_KEY` | Chave do Gemini (opcional) | vazio |
-| `GEMINI_MODEL` | Modelo Gemini | `gemini-1.5-flash` |
+| `GEMINI_MODEL` | Modelo Gemini | `gemini-2.5-flash` |
 | `AI_ANALYSIS_ENABLED` | Liga/desliga análise por IA | `true` |
 | `AI_BATCH_SIZE` | Artigos por lote de análise | `5` |
 | `AI_ANALYSIS_DAILY_LIMIT` | Limite diário de análises | `50` |
+| `AI_ANALYSIS_STOP_ON_RATE_LIMIT` | Parar o lote ao bater limite/quota da Gemini | `true` |
+| `AI_ANALYSIS_RETRY_COOLDOWN_MINUTES` | Sugestão de cooldown (min) após limite | `60` |
 | `FETCH_INTERVAL_MINUTES` | Intervalo de coleta do worker | `15` |
 | `NEXT_PUBLIC_APP_URL` | URL pública do app | `http://localhost:3000` |
 
@@ -203,6 +205,88 @@ score local e híbrido, tendências e geração do digest.
 | GET | `/api/digest/today` · POST `/api/digest/generate` |
 | GET | `/api/settings/status` · POST `/api/settings/test-ai` |
 | GET | `/api/trends` |
+
+## Production Deploy
+
+O AI Market Radar roda em produção como **dois serviços** — um **web service**
+(Next.js) e um **worker** (coleta/análise agendada) — sobre um **PostgreSQL
+gerenciado**. Não há deploy automático aqui: configure os serviços e os secrets
+na plataforma escolhida. A plataforma recomendada é o **Render** (há um
+`render.yaml` pronto), mas Railway, Fly.io ou uma VPS funcionam com os mesmos
+comandos de build/start.
+
+### A) Variáveis de ambiente obrigatórias
+
+| Variável | Valor / descrição |
+|---|---|
+| `DATABASE_URL` | Conexão do PostgreSQL gerenciado |
+| `GEMINI_API_KEY` | Chave do Gemini — **secret**, nunca commitar |
+| `GEMINI_MODEL` | `gemini-2.5-flash` |
+| `AI_ANALYSIS_ENABLED` | `true` |
+| `AI_BATCH_SIZE` | `5` |
+| `AI_ANALYSIS_DAILY_LIMIT` | `50` |
+| `AI_ANALYSIS_STOP_ON_RATE_LIMIT` | `true` |
+| `AI_ANALYSIS_RETRY_COOLDOWN_MINUTES` | `60` |
+| `FETCH_INTERVAL_MINUTES` | `15` |
+| `NEXT_PUBLIC_APP_URL` | URL pública do web service |
+
+> Sem `GEMINI_API_KEY` o app continua funcionando: a coleta roda e os artigos
+> ficam `PENDING_ANALYSIS`. Defina a chave apenas como secret na plataforma.
+
+### B) Web Service
+
+```bash
+# Build command
+npm install && npm run prisma:generate && npm run build
+# Start command
+npm run start
+```
+
+### C) Worker Service
+
+```bash
+# Build command
+npm install && npm run prisma:generate
+# Start command
+npm run worker
+```
+
+### D) Banco de dados
+
+Use um PostgreSQL gerenciado e rode as migrations de produção com:
+
+```bash
+npm run prisma:deploy
+```
+
+Nunca rode `prisma migrate dev` em produção. No `render.yaml` isso é executado
+como `preDeployCommand` do web service, antes de cada release ir ao ar.
+
+### E) Seed (uma única vez)
+
+```bash
+npm run prisma:seed
+```
+
+### F) Coleta manual
+
+```bash
+npm run fetch:run
+```
+
+### G) Análise manual
+
+```bash
+npm run analyze:pending
+```
+
+### Deploy no Render (Blueprint)
+
+O arquivo [`render.yaml`](./render.yaml) descreve o **web service**, o **worker
+service** e o **PostgreSQL**. No painel do Render: *New → Blueprint*, aponte para
+este repositório e defina os secrets `GEMINI_API_KEY` e `NEXT_PUBLIC_APP_URL`
+(marcados como `sync: false`). Os planos são ajustáveis; workers exigem plano
+pago no Render.
 
 ## Limitações atuais
 
