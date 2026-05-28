@@ -10,6 +10,8 @@ export interface TrendInput {
   companies?: string[];
   technologies?: string[];
   keywords?: string[];
+  category?: string | null;
+  marketSignals?: string[];
 }
 
 function tally(lists: Array<string[] | undefined>, limit: number): TermCount[] {
@@ -51,10 +53,26 @@ export function trendingKeywords(items: TrendInput[], limit = 12): TermCount[] {
   );
 }
 
+export function topCategories(items: TrendInput[], limit = 10): TermCount[] {
+  return tally(
+    items.map((i) => (i.category ? [i.category] : [])),
+    limit,
+  );
+}
+
+export function topMarketSignals(items: TrendInput[], limit = 12): TermCount[] {
+  return tally(
+    items.map((i) => i.marketSignals),
+    limit,
+  );
+}
+
 export interface TrendsResult {
   companies: TermCount[];
   technologies: TermCount[];
   keywords: TermCount[];
+  categories: TermCount[];
+  marketSignals: TermCount[];
   totalArticles: number;
 }
 
@@ -64,6 +82,8 @@ export function computeTrends(items: TrendInput[]): TrendsResult {
     companies: topCompanies(items),
     technologies: topTechnologies(items),
     keywords: trendingKeywords(items),
+    categories: topCategories(items),
+    marketSignals: topMarketSignals(items),
     totalArticles: items.length,
   };
 }

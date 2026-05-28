@@ -3,7 +3,7 @@ import { prisma } from "../db";
 import { config, getGeminiModel, isAiConfigured } from "../config";
 import { computeHybridScore } from "../scoring";
 import type { AiAnalysisResult } from "../types";
-import { AiNotConfiguredError, callGemini } from "./gemini";
+import { AiNotConfiguredError, callGemini, redactSecrets } from "./gemini";
 import { buildAnalysisPrompt } from "./prompt";
 import { parseAiResponse } from "./parse";
 
@@ -101,7 +101,7 @@ export async function analyzeArticleById(
     return {
       ok: false,
       reason: "ERROR",
-      message: err instanceof Error ? err.message : String(err),
+      message: redactSecrets(err instanceof Error ? err.message : String(err)),
     };
   }
 }
@@ -111,10 +111,22 @@ export interface AnalyzePendingResult {
   attempted: number;
   analyzed: number;
   failed: number;
+  skipped: number;
   message?: string;
 }
 
-/** Analyzes a small batch of pending articles, highest-scored first. */
+function startOfTodayUtc(): Date {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+}
+
+/**
+ * Analyzes a small batch of pending articles, highest-scored first.
+ * Respects AI_BATCH_SIZE (per run) and AI_ANALYSIS_DAILY_LIMIT (per UTC day),
+ * never re-analyzes ANALYZED articles, and never throws if one article fails.
+ */
 export async function analyzePending(limit?: number): Promise<AnalyzePendingResult> {
   if (!isAiConfigured()) {
     const pending = await prisma.article.count({
@@ -125,11 +137,34 @@ export async function analyzePending(limit?: number): Promise<AnalyzePendingResu
       attempted: 0,
       analyzed: 0,
       failed: 0,
+      skipped: pending,
       message: `GEMINI_API_KEY não configurada. ${pending} artigo(s) permanecem pendentes.`,
     };
   }
 
-  const take = limit && limit > 0 ? limit : config.aiBatchSize;
+  const totalPending = await prisma.article.count({
+    where: { status: "PENDING_ANALYSIS" },
+  });
+
+  // Daily budget (cost protection): count analyses created today.
+  const analyzedToday = await prisma.articleAnalysis.count({
+    where: { createdAt: { gte: startOfTodayUtc() } },
+  });
+  const remainingToday = Math.max(0, config.aiAnalysisDailyLimit - analyzedToday);
+  if (remainingToday <= 0) {
+    return {
+      configured: true,
+      attempted: 0,
+      analyzed: 0,
+      failed: 0,
+      skipped: totalPending,
+      message: `Limite diário de análises atingido (${analyzedToday}/${config.aiAnalysisDailyLimit}).`,
+    };
+  }
+
+  const batch = limit && limit > 0 ? limit : config.aiBatchSize;
+  const take = Math.min(batch, remainingToday);
+
   const pendingArticles = await prisma.article.findMany({
     where: { status: "PENDING_ANALYSIS" },
     orderBy: [{ finalScore: "desc" }, { collectedAt: "desc" }],
@@ -149,5 +184,6 @@ export async function analyzePending(limit?: number): Promise<AnalyzePendingResu
     attempted: pendingArticles.length,
     analyzed,
     failed,
+    skipped: Math.max(0, totalPending - pendingArticles.length),
   };
 }

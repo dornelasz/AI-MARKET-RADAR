@@ -111,9 +111,20 @@ export async function getTrends(limitArticles = 300) {
       companies: a.companies,
       technologies: a.technologies,
       keywords: a.keywords,
+      category: a.category,
+      marketSignals: a.marketSignals,
       relevanceScore: a.relevanceScore,
     })),
   );
+}
+
+export async function getTopAnalyzedArticles(limit = 10) {
+  return prisma.article.findMany({
+    where: { status: "ANALYZED" },
+    include: { source: true, analysis: true },
+    orderBy: { finalScore: "desc" },
+    take: Math.min(50, Math.max(1, limit)),
+  });
 }
 
 export async function getDashboardData() {

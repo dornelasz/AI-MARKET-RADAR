@@ -8,6 +8,14 @@ export class AiNotConfiguredError extends Error {
   }
 }
 
+/** Strips the API key (and any key= query param) from a message before it reaches logs or the UI. */
+export function redactSecrets(message: string): string {
+  let out = message ?? "";
+  const key = getGeminiApiKey();
+  if (key && key.length >= 8) out = out.split(key).join("[REDACTED]");
+  return out.replace(/([?&]key=)[^\s&"']+/gi, "$1[REDACTED]");
+}
+
 /** Low-level call. Throws AiNotConfiguredError when no key is present. */
 export async function callGemini(prompt: string): Promise<string> {
   if (!isAiConfigured()) throw new AiNotConfiguredError();
@@ -55,7 +63,7 @@ export async function testGemini(): Promise<GeminiTestResult> {
   } catch (err) {
     return {
       ok: false,
-      message: err instanceof Error ? err.message : String(err),
+      message: redactSecrets(err instanceof Error ? err.message : String(err)),
       model,
     };
   }

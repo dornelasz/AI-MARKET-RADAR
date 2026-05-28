@@ -15,7 +15,7 @@ function toBool(value: string | undefined, fallback: boolean): boolean {
  */
 export const config = {
   databaseUrl: process.env.DATABASE_URL ?? "",
-  geminiModel: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+  geminiModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
   aiBatchSize: toInt(process.env.AI_BATCH_SIZE, 5),
   aiAnalysisDailyLimit: toInt(process.env.AI_ANALYSIS_DAILY_LIMIT, 50),
   fetchIntervalMinutes: toInt(process.env.FETCH_INTERVAL_MINUTES, 15),
@@ -27,7 +27,7 @@ export function getGeminiApiKey(): string {
 }
 
 export function getGeminiModel(): string {
-  return process.env.GEMINI_MODEL || "gemini-1.5-flash";
+  return process.env.GEMINI_MODEL || "gemini-2.5-flash";
 }
 
 export function isAiEnabled(): boolean {

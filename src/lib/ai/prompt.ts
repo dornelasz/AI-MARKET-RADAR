@@ -14,9 +14,9 @@ export function buildAnalysisPrompt(input: AnalysisPromptInput): string {
   return `You are an analyst for "AI Market Radar". Analyze ONLY the article content provided below.
 
 STRICT RULES:
-- Use ONLY the provided content. Never invent facts, sources, links, companies, or dates.
+- Use ONLY the provided content. Never invent facts, sources, links, companies, technologies, or dates.
 - If something is unknown, use "unknown" (for strings) or an empty array. Do not guess.
-- "reasoningShort" must be ONE short justification (max ~240 chars), NOT a chain of thought.
+- "reasoningShort" must be ONE short justification (max ~240 chars), NOT a chain of thought. Do not include step-by-step reasoning.
 - Respond with a SINGLE valid JSON object and NOTHING else. No prose, no markdown, no code fences.
 
 Return exactly this JSON shape:
