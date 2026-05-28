@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFeed } from "@/lib/collectors/rss";
+import { parseFeed, decodeEntities, stripHtml } from "@/lib/collectors/rss";
 
 const RSS = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -51,6 +51,32 @@ describe("parseFeed (Atom)", () => {
     expect(items[0].url).toBe("https://github.com/o/r/releases/tag/v1.2.0");
     expect(items[0].content).toContain("Release notes bold");
     expect(items[0].publishedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("entity handling", () => {
+  it("decodes named, numeric and hex entities (&amp; last)", () => {
+    expect(decodeEntities("Tom &amp; Jerry &lt;b&gt;x&lt;/b&gt; &#39;q&#39; &#x27;r&#x27;")).toBe(
+      "Tom & Jerry <b>x</b> 'q' 'r'",
+    );
+  });
+
+  it("decodes then strips HTML", () => {
+    expect(stripHtml("&lt;p&gt;Hello &amp; welcome&lt;/p&gt;")).toBe("Hello & welcome");
+  });
+
+  it("parses feeds whose content has many escaped entities (no expansion-limit crash)", () => {
+    const entries = Array.from({ length: 3 })
+      .map(
+        (_, i) =>
+          `<entry><title>Item ${i}</title><link rel="alternate" href="https://e.com/${i}"/><content type="html">${"&lt;b&gt;tag&lt;/b&gt; &amp; more ".repeat(800)}</content></entry>`,
+      )
+      .join("");
+    const xml = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Big</title>${entries}</feed>`;
+    const parsed = parseFeed(xml, "Big");
+    expect(parsed).toHaveLength(3);
+    expect(parsed[0].content).toContain("tag & more");
+    expect(parsed[0].content).not.toContain("<b>");
   });
 });
 

@@ -68,19 +68,21 @@ const SOURCES: SeedSource[] = [
   // --- Active: arXiv (public Atom API) ---
   {
     name: "arXiv — Artificial Intelligence (cs.AI)",
-    url: "http://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=40",
+    url: "https://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=40",
     type: SourceType.ARXIV,
     category: "papers",
-    isActive: true,
-    notes: "API pública Atom do arXiv (categoria cs.AI).",
+    isActive: false,
+    notes:
+      "API pública Atom do arXiv (cs.AI). Inativa por padrão: o arXiv pode retornar HTTP 403 para IPs de datacenter. Ative e valide na sua rede.",
   },
   {
     name: "arXiv — Machine Learning (cs.LG)",
-    url: "http://export.arxiv.org/api/query?search_query=cat:cs.LG&sortBy=submittedDate&sortOrder=descending&max_results=40",
+    url: "https://export.arxiv.org/api/query?search_query=cat:cs.LG&sortBy=submittedDate&sortOrder=descending&max_results=40",
     type: SourceType.ARXIV,
     category: "papers",
-    isActive: true,
-    notes: "API pública Atom do arXiv (categoria cs.LG).",
+    isActive: false,
+    notes:
+      "API pública Atom do arXiv (cs.LG). Inativa por padrão: o arXiv pode retornar HTTP 403 para IPs de datacenter. Ative e valide na sua rede.",
   },
 
   // --- Inactive: general WordPress feeds (real /feed/, opt-in to avoid noise) ---

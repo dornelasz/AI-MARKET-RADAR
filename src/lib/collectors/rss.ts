@@ -1,6 +1,9 @@
 import { XMLParser } from "fast-xml-parser";
 import type { CollectedArticle } from "../types";
 
+// processEntities is disabled to avoid fast-xml-parser's entity-expansion guard
+// rejecting large feeds (e.g. GitHub release notes with 1000+ escaped entities).
+// We decode the common entities ourselves in decodeEntities() instead.
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
@@ -9,6 +12,7 @@ const parser = new XMLParser({
   parseTagValue: false,
   parseAttributeValue: false,
   cdataPropName: "__cdata",
+  processEntities: false,
 });
 
 function toArray<T>(value: T | T[] | undefined | null): T[] {
@@ -30,17 +34,38 @@ function textValue(node: unknown): string {
   return "";
 }
 
-export function stripHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
+/** Decodes the common named and numeric XML/HTML entities. &amp; is decoded last. */
+export function decodeEntities(input: string): string {
+  return input
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
-    .replace(/&#0?39;|&#x27;|&apos;/gi, "'")
+    .replace(/&apos;|&#0*39;|&#x0*27;/gi, "'")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, dec: string) => {
+      const code = Number(dec);
+      return Number.isFinite(code) ? safeCodePoint(code) : "";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
+      safeCodePoint(parseInt(hex, 16)),
+    )
+    .replace(/&amp;/gi, "&");
+}
+
+function safeCodePoint(code: number): string {
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return "";
+  }
+}
+
+/** Decodes entities, removes tags and collapses whitespace. */
+export function stripHtml(html: string): string {
+  return decodeEntities(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -96,7 +121,7 @@ export function parseFeed(xml: string, sourceName = ""): CollectedArticle[] {
   // RSS 2.0 and RDF/RSS 1.0
   const rssChannel = data?.rss?.channel ?? data?.["rdf:RDF"]?.channel;
   if (rssChannel) {
-    const feedTitle = textValue(rssChannel.title) || sourceName;
+    const feedTitle = decodeEntities(textValue(rssChannel.title)) || sourceName;
     const items = toArray(rssChannel.item ?? data?.["rdf:RDF"]?.item);
     return items
       .map((item: any): CollectedArticle => {
@@ -104,13 +129,15 @@ export function parseFeed(xml: string, sourceName = ""): CollectedArticle[] {
         const encoded = stripHtml(textValue(item["content:encoded"]));
         const content = encoded || description;
         return {
-          title: textValue(item.title).trim(),
-          url: textValue(item.link).trim() || textValue(item.guid).trim(),
+          title: decodeEntities(textValue(item.title)).trim(),
+          url: decodeEntities(
+            textValue(item.link).trim() || textValue(item.guid).trim(),
+          ),
           publishedAt: parseDate(item.pubDate ?? item["dc:date"] ?? item.date),
           excerpt: clip(description || content),
           content,
           sourceName: sourceName || feedTitle,
-          author: textValue(item.author ?? item["dc:creator"]).trim() || null,
+          author: decodeEntities(textValue(item.author ?? item["dc:creator"])).trim() || null,
         };
       })
       .filter((article) => article.title && article.url);
@@ -118,7 +145,7 @@ export function parseFeed(xml: string, sourceName = ""): CollectedArticle[] {
 
   // Atom
   if (data?.feed) {
-    const feedTitle = textValue(data.feed.title) || sourceName;
+    const feedTitle = decodeEntities(textValue(data.feed.title)) || sourceName;
     const entries = toArray(data.feed.entry);
     return entries
       .map((entry: any): CollectedArticle => {
@@ -126,13 +153,13 @@ export function parseFeed(xml: string, sourceName = ""): CollectedArticle[] {
         const body = stripHtml(textValue(entry.content));
         const content = body || summary;
         return {
-          title: textValue(entry.title).trim(),
-          url: pickAtomLink(entry.link).trim() || textValue(entry.id).trim(),
+          title: decodeEntities(textValue(entry.title)).trim(),
+          url: decodeEntities(pickAtomLink(entry.link).trim() || textValue(entry.id).trim()),
           publishedAt: parseDate(entry.published ?? entry.updated),
           excerpt: clip(summary || content),
           content,
           sourceName: sourceName || feedTitle,
-          author: textValue(entry?.author?.name).trim() || null,
+          author: decodeEntities(textValue(entry?.author?.name)).trim() || null,
         };
       })
       .filter((article) => article.title && article.url);
