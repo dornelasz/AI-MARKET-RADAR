@@ -3,7 +3,14 @@ import { prisma } from "../db";
 import { config, getGeminiModel, isAiConfigured } from "../config";
 import { computeHybridScore } from "../scoring";
 import type { AiAnalysisResult } from "../types";
-import { AiNotConfiguredError, callGemini, redactSecrets } from "./gemini";
+import {
+  AiNotConfiguredError,
+  callGemini,
+  classifyRateLimitError,
+  redactSecrets,
+  type GeminiLimitKind,
+} from "./gemini";
+import { recordRateLimit } from "./rateLimitState";
 import { buildAnalysisPrompt } from "./prompt";
 import { parseAiResponse } from "./parse";
 
@@ -33,7 +40,8 @@ export type AnalyzeArticleOutcome =
       ok: false;
       reason: "NOT_CONFIGURED" | "NOT_FOUND" | "ERROR";
       message: string;
-    };
+    }
+  | { ok: false; reason: "RATE_LIMITED"; limit: GeminiLimitKind; message: string };
 
 /**
  * Analyzes a single article with Gemini and persists the result.
@@ -95,6 +103,17 @@ export async function analyzeArticleById(
         message: "GEMINI_API_KEY não configurada.",
       };
     }
+    const limit = classifyRateLimitError(err);
+    if (limit) {
+      // Transient quota/rate limit: keep the article PENDING for a later retry.
+      recordRateLimit(limit);
+      return {
+        ok: false,
+        reason: "RATE_LIMITED",
+        limit,
+        message: redactSecrets(err instanceof Error ? err.message : String(err)),
+      };
+    }
     await prisma.article
       .update({ where: { id: article.id }, data: { status: "ANALYSIS_FAILED" } })
       .catch(() => undefined);
@@ -112,6 +131,7 @@ export interface AnalyzePendingResult {
   analyzed: number;
   failed: number;
   skipped: number;
+  stoppedBecause: GeminiLimitKind | null;
   message?: string;
 }
 
@@ -138,6 +158,7 @@ export async function analyzePending(limit?: number): Promise<AnalyzePendingResu
       analyzed: 0,
       failed: 0,
       skipped: pending,
+      stoppedBecause: null,
       message: `GEMINI_API_KEY não configurada. ${pending} artigo(s) permanecem pendentes.`,
     };
   }
@@ -158,6 +179,7 @@ export async function analyzePending(limit?: number): Promise<AnalyzePendingResu
       analyzed: 0,
       failed: 0,
       skipped: totalPending,
+      stoppedBecause: null,
       message: `Limite diário de análises atingido (${analyzedToday}/${config.aiAnalysisDailyLimit}).`,
     };
   }
@@ -173,17 +195,37 @@ export async function analyzePending(limit?: number): Promise<AnalyzePendingResu
 
   let analyzed = 0;
   let failed = 0;
+  let stoppedBecause: GeminiLimitKind | null = null;
   for (const article of pendingArticles) {
     const outcome = await analyzeArticleById(article.id);
-    if (outcome.ok) analyzed++;
-    else failed++;
+    if (outcome.ok) {
+      analyzed++;
+      continue;
+    }
+    if (outcome.reason === "RATE_LIMITED") {
+      // Stop the batch safely; this article stays PENDING for a later retry.
+      stoppedBecause = outcome.limit;
+      if (config.aiStopOnRateLimit) break;
+      continue;
+    }
+    failed++;
   }
+
+  const attempted = analyzed + failed;
+  const skipped = Math.max(0, totalPending - attempted);
+  const message = stoppedBecause
+    ? `${stoppedBecause === "QUOTA_LIMIT" ? "Quota" : "Rate limit"} da Gemini atingido. ` +
+      `${analyzed} analisado(s); ${skipped} artigo(s) seguem pendentes. ` +
+      `Tente novamente em ~${config.aiRetryCooldownMinutes} min.`
+    : `${analyzed} analisado(s), ${failed} falha(s); ${skipped} pendente(s).`;
 
   return {
     configured: true,
-    attempted: pendingArticles.length,
+    attempted,
     analyzed,
     failed,
-    skipped: Math.max(0, totalPending - pendingArticles.length),
+    skipped,
+    stoppedBecause,
+    message,
   };
 }

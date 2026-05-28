@@ -17,6 +17,10 @@ export async function POST(
   if (outcome.reason === "NOT_FOUND") {
     return jsonError(outcome.message, 404, { reason: outcome.reason });
   }
+  if (outcome.reason === "RATE_LIMITED") {
+    // Transient: the article stays PENDING; signal a retryable status.
+    return NextResponse.json(outcome, { status: 429 });
+  }
   // NOT_CONFIGURED is an expected, non-error state (missing key). ERROR is a failure.
   return NextResponse.json(outcome, {
     status: outcome.reason === "NOT_CONFIGURED" ? 200 : 502,

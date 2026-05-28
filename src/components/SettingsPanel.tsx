@@ -23,6 +23,14 @@ interface StatusResponse {
   lastFetch:
     | { startedAt: string; status: string; source?: { name: string } | null }
     | null;
+  recentRateLimit:
+    | {
+        kind: "QUOTA_LIMIT" | "RATE_LIMIT";
+        at: string;
+        cooldownUntil: string;
+        active: boolean;
+      }
+    | null;
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -134,6 +142,22 @@ export function SettingsPanel() {
             Defina <code>GEMINI_API_KEY</code> no ambiente e mantenha{" "}
             <code>AI_ANALYSIS_ENABLED=true</code>. Sem isso, a coleta continua e os
             artigos ficam pendentes.
+          </p>
+        ) : null}
+
+        {status.recentRateLimit?.active ? (
+          <p className="mt-3 rounded-lg border border-accent-amber/30 bg-accent-amber/10 px-3 py-2 text-xs text-ink-muted">
+            <span className="font-medium text-ink">
+              Análise pausada:{" "}
+              {status.recentRateLimit.kind === "QUOTA_LIMIT" ? "quota" : "rate limit"} da
+              Gemini atingido.
+            </span>{" "}
+            Os artigos seguem pendentes. Tente novamente após{" "}
+            {new Date(status.recentRateLimit.cooldownUntil).toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+            .
           </p>
         ) : null}
 

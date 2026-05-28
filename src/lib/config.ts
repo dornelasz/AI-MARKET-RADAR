@@ -19,6 +19,8 @@ export const config = {
   aiBatchSize: toInt(process.env.AI_BATCH_SIZE, 5),
   aiAnalysisDailyLimit: toInt(process.env.AI_ANALYSIS_DAILY_LIMIT, 50),
   fetchIntervalMinutes: toInt(process.env.FETCH_INTERVAL_MINUTES, 15),
+  aiStopOnRateLimit: toBool(process.env.AI_ANALYSIS_STOP_ON_RATE_LIMIT, true),
+  aiRetryCooldownMinutes: toInt(process.env.AI_ANALYSIS_RETRY_COOLDOWN_MINUTES, 60),
   appUrl: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
 } as const;
 

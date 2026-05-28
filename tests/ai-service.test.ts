@@ -27,13 +27,14 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-// Keep redactSecrets / AiNotConfiguredError real; only stub the network call.
+// Keep redactSecrets / classifyRateLimitError / AiNotConfiguredError real; only stub the network call.
 vi.mock("@/lib/ai/gemini", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/gemini")>();
   return { ...actual, callGemini: mocks.callGemini };
 });
 
 import { analyzeArticleById, analyzePending } from "@/lib/ai/service";
+import { clearRateLimit, getLastRateLimit } from "@/lib/ai/rateLimitState";
 
 const VALID_JSON = JSON.stringify({
   summary: "Resumo do conteúdo real",
@@ -62,8 +63,16 @@ const ARTICLE = {
   source: { name: "Fonte Real" },
 };
 
+function failedUpdateCall() {
+  return mocks.articleUpdate.mock.calls.find(
+    (c) => (c[0] as { data?: { status?: string } })?.data?.status === "ANALYSIS_FAILED",
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.callGemini.mockReset();
+  clearRateLimit();
   process.env.AI_ANALYSIS_ENABLED = "true";
   process.env.GEMINI_API_KEY = "test-key-123456";
   mocks.transaction.mockResolvedValue([{}, {}]);
@@ -87,7 +96,7 @@ describe("analyzeArticleById", () => {
     expect(analyzedCall).toBeTruthy();
   });
 
-  it("marca ANALYSIS_FAILED e nunca expõe a chave no erro", async () => {
+  it("marca ANALYSIS_FAILED e nunca expõe a chave em erro NÃO transitório", async () => {
     mocks.articleFindUnique.mockResolvedValue(ARTICLE);
     mocks.callGemini.mockRejectedValue(
       new Error("fetch https://x?key=test-key-123456 failed (test-key-123456)"),
@@ -100,10 +109,39 @@ describe("analyzeArticleById", () => {
       expect(outcome.reason).toBe("ERROR");
       expect(outcome.message).not.toContain("test-key-123456");
     }
-    const failedCall = mocks.articleUpdate.mock.calls.find(
-      (c) => (c[0] as { data?: { status?: string } })?.data?.status === "ANALYSIS_FAILED",
+    expect(failedUpdateCall()).toBeTruthy();
+  });
+
+  it("NÃO marca ANALYSIS_FAILED em rate limit (429) — mantém PENDING", async () => {
+    mocks.articleFindUnique.mockResolvedValue(ARTICLE);
+    mocks.callGemini.mockRejectedValue(
+      new Error("[429 Too Many Requests] rate limit exceeded for this model"),
     );
-    expect(failedCall).toBeTruthy();
+
+    const outcome = await analyzeArticleById("a1");
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.reason).toBe("RATE_LIMITED");
+      if (outcome.reason === "RATE_LIMITED") expect(outcome.limit).toBe("RATE_LIMIT");
+    }
+    expect(failedUpdateCall()).toBeUndefined();
+    expect(getLastRateLimit()?.kind).toBe("RATE_LIMIT");
+  });
+
+  it("classifica quota excedida como QUOTA_LIMIT (sem marcar FAILED)", async () => {
+    mocks.articleFindUnique.mockResolvedValue(ARTICLE);
+    mocks.callGemini.mockRejectedValue(
+      new Error("[429] You exceeded your current quota, please check billing"),
+    );
+
+    const outcome = await analyzeArticleById("a1");
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok && outcome.reason === "RATE_LIMITED") {
+      expect(outcome.limit).toBe("QUOTA_LIMIT");
+    }
+    expect(failedUpdateCall()).toBeUndefined();
   });
 
   it("retorna NOT_FOUND para artigo inexistente", async () => {
@@ -125,11 +163,34 @@ describe("analyzePending", () => {
     expect(result.configured).toBe(true);
     expect(result.attempted).toBe(0);
     expect(result.skipped).toBe(7);
+    expect(result.stoppedBecause).toBeNull();
     expect(result.message).toMatch(/[Ll]imite diário/);
     expect(mocks.articleFindMany).not.toHaveBeenCalled();
   });
 
-  it("respeita o tamanho do lote e reporta ignorados", async () => {
+  it("interrompe o lote com segurança ao bater rate limit", async () => {
+    mocks.articleCount.mockResolvedValue(10);
+    mocks.analysisCount.mockResolvedValue(0);
+    mocks.articleFindMany.mockResolvedValue([
+      { ...ARTICLE, id: "a1" },
+      { ...ARTICLE, id: "a2" },
+      { ...ARTICLE, id: "a3" },
+    ]);
+    mocks.articleFindUnique.mockResolvedValue(ARTICLE);
+    mocks.callGemini
+      .mockResolvedValueOnce(VALID_JSON)
+      .mockRejectedValueOnce(new Error("[429] resource exhausted"));
+
+    const result = await analyzePending(5);
+
+    expect(result.analyzed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.stoppedBecause).toBe("RATE_LIMIT");
+    expect(mocks.callGemini).toHaveBeenCalledTimes(2); // parou antes do 3º
+    expect(failedUpdateCall()).toBeUndefined();
+  });
+
+  it("análise normal continua funcionando e reporta ignorados", async () => {
     mocks.articleCount.mockResolvedValue(10);
     mocks.analysisCount.mockResolvedValue(0);
     mocks.articleFindMany.mockResolvedValue([
@@ -142,8 +203,9 @@ describe("analyzePending", () => {
     const result = await analyzePending(2);
 
     expect((mocks.articleFindMany.mock.calls[0][0] as { take: number }).take).toBe(2);
-    expect(result.attempted).toBe(2);
     expect(result.analyzed).toBe(2);
+    expect(result.failed).toBe(0);
     expect(result.skipped).toBe(8);
+    expect(result.stoppedBecause).toBeNull();
   });
 });
