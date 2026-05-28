@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-market-radar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: radar
+      POSTGRES_DB: ai_market_radar
+    ports:
+      - "5432:5432"
+    volumes:
+      - ai_market_radar_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U radar -d ai_market_radar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ai_market_radar_pgdata:
